@@ -3,7 +3,7 @@
        or -p:PdfPeckerSource=../PdfPecker to build against a checkout of the PdfPecker repository instead (a path
        relative to where dotnet runs, or absolute), for example to measure unreleased code. -->
   <PropertyGroup>
-    <PdfPeckerVersion Condition="'$(PdfPeckerVersion)' == ''">1.18.0</PdfPeckerVersion>
+    <PdfPeckerVersion Condition="'$(PdfPeckerVersion)' == ''">1.19.0</PdfPeckerVersion>
     <!-- A property set on the command line can't be changed, so the resolved path gets a name of its own. -->
     <PdfPeckerRoot Condition="'$(PdfPeckerSource)' != ''">$([System.IO.Path]::GetFullPath('$(PdfPeckerSource)', '$(MSBuildStartupDirectory)'))</PdfPeckerRoot>
     <OutputType>Exe</OutputType>
