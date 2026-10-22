@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The same invoice built with PdfPecker.Fluent and with QuestPDF. Usage is at the top of Program.cs. -->
+  <ItemGroup>
+    <PackageReference Include="QuestPDF" Version="2026.9.1" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PdfPeckerRoot)' == ''">
+    <PackageReference Include="PdfPecker.Fluent" Version="$(PdfPeckerVersion)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(PdfPeckerRoot)' != ''">
+    <ProjectReference Include="$(PdfPeckerRoot)/src/PdfPecker.Fluent/PdfPecker.Fluent.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="assets/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
