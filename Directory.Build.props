@@ -1,0 +1,16 @@
+<Project>
+  <!-- The benchmarks measure PdfPecker from nuget.org by default. Pass -p:PdfPeckerVersion=1.17.0 for another release,
+       or -p:PdfPeckerSource=../PdfPecker to build against a checkout of the PdfPecker repository instead (a path
+       relative to where dotnet runs, or absolute), for example to measure unreleased code. -->
+  <PropertyGroup>
+    <PdfPeckerVersion Condition="'$(PdfPeckerVersion)' == ''">1.18.0</PdfPeckerVersion>
+    <!-- A property set on the command line can't be changed, so the resolved path gets a name of its own. -->
+    <PdfPeckerRoot Condition="'$(PdfPeckerSource)' != ''">$([System.IO.Path]::GetFullPath('$(PdfPeckerSource)', '$(MSBuildStartupDirectory)'))</PdfPeckerRoot>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+</Project>

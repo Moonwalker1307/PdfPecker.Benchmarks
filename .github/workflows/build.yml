@@ -1,0 +1,32 @@
+name: Build
+
+# Builds both benchmarks, so a package update or a PdfPecker release that breaks them shows up. The benchmarks
+# themselves are not run here: GitHub runners differ too much from run to run for the numbers to mean anything.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Moonwalker1307/PdfPecker
+          path: PdfPecker
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Converter comparison, PdfPecker from nuget.org
+        run: dotnet build -c Release src/PdfPecker.Comparison
+      - name: Converter comparison, PdfPecker from main
+        run: dotnet build -c Release src/PdfPecker.Comparison -p:PdfPeckerSource=PdfPecker
+      # PdfPecker.Fluent reaches nuget.org with the next PdfPecker release; until then it is built from main.
+      - name: Fluent comparison, PdfPecker.Fluent from main
+        run: dotnet build -c Release src/PdfPecker.Fluent.Comparison -p:PdfPeckerSource=PdfPecker
