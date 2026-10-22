@@ -120,8 +120,10 @@ jobs:
       - name: Install wkhtmltopdf and fonts
         run: |
           if ! command -v wkhtmltopdf > /dev/null || [ ! -d /usr/share/fonts/truetype/liberation ]; then
+            # Rebuilding the man page index after the install took ten minutes on a hosted runner.
+            sudo rm -f /var/lib/man-db/auto-update
             sudo apt-get update -qq
-            sudo apt-get install -y -qq wkhtmltopdf fonts-liberation
+            sudo apt-get install -y -qq --no-install-recommends wkhtmltopdf fonts-liberation
           fi
 
       - name: Build
