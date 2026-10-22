@@ -43,8 +43,8 @@ dotnet run -c Release --project src/PdfPecker.Comparison -p:PdfPeckerVersion=1.1
 dotnet run -c Release --project src/PdfPecker.Comparison -p:PdfPeckerSource=../PdfPecker
 ```
 
-PdfPecker.Fluent is published from the next PdfPecker release on; until then the fluent comparison needs
-`-p:PdfPeckerSource`.
+PdfPecker.Fluent is published with every PdfPecker release from 1.19.0 on, with the same version, so the fluent
+comparison takes the same `PdfPeckerVersion`.
 
 ## Measuring fairly
 
