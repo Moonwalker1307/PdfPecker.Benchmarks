@@ -1,0 +1,190 @@
+name: Benchmark
+
+# Runs the converter comparison (every engine) and the fluent comparison, and posts the tables as the job summary.
+# It runs only when started by hand or by the daily check for a new PdfPecker release, never on a pull request: the
+# repository is public, and a pull request from a fork must never reach a self-hosted runner.
+#
+# GitHub's hosted runners are a pool of different machines, so the CPU, its L3 cache and the memory are logged with
+# every run. Compare times only between runs on the same CPU model; the ratios to PdfPecker carry over far better.
+# For the same machine every time, register a self-hosted runner with the label pdfpecker-bench and choose it below
+# (or set the repository variable BENCHMARK_RUNNER for the daily check); the README says how to set one up safely.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: PdfPecker version from nuget.org, "main" for the PdfPecker repository's main branch, or empty for the newest release
+        required: false
+        default: ""
+      runs:
+        description: Runs per engine, each in a fresh process; the table shows the medians
+        required: false
+        default: "3"
+      warmup:
+        description: Warm-up in seconds before anything is timed
+        required: false
+        default: "30"
+      engines:
+        description: Engines to compare, comma-separated, or empty for all of them
+        required: false
+        default: ""
+      fluent:
+        description: Also compare PdfPecker.Fluent with QuestPDF
+        type: boolean
+        default: true
+      runner:
+        description: Machine to run on
+        type: choice
+        options: [ubuntu-latest, pdfpecker-bench]
+        default: ubuntu-latest
+  schedule:
+    - cron: "17 5 * * *"
+
+permissions:
+  contents: read
+
+# One benchmark at a time, so two runs never share a self-hosted machine.
+concurrency:
+  group: benchmark
+  cancel-in-progress: false
+
+jobs:
+  # Decides what to measure. A scheduled run measures the newest PdfPecker on nuget.org once: when an artifact of an
+  # earlier benchmark of that version exists, it stops here.
+  plan:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.repository_owner == 'Moonwalker1307'
+    permissions:
+      actions: read
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      run: ${{ steps.plan.outputs.run }}
+    steps:
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          version="$REQUESTED"
+          if [ -z "$version" ]; then
+            # The flat container lists every version in ascending order; previews carry a hyphen.
+            version=$(curl -fsS https://api.nuget.org/v3-flatcontainer/pdfpecker/index.json \
+              | jq -r '[.versions[] | select(contains("-") | not)] | last')
+          fi
+          if ! [[ "$version" =~ ^(main|[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]]; then
+            echo "::error::'$version' is neither a version nor main"
+            exit 1
+          fi
+          run=true
+          if [ "${{ github.event_name }}" = schedule ]; then
+            count=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=benchmark-pdfpecker-$version" --jq .total_count)
+            if [ "$count" != 0 ]; then
+              run=false
+              echo "PdfPecker $version has been measured already." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+  benchmark:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: ${{ inputs.runner || vars.BENCHMARK_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 240
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      RUNS: ${{ inputs.runs || '3' }}
+      PDFPECKER_BENCH_WARMUP: ${{ inputs.warmup || '30' }}
+      ENGINES: ${{ inputs.engines }}
+      # A scheduled run has no inputs, and measures everything.
+      FLUENT: ${{ github.event_name == 'schedule' || inputs.fluent }}
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.VERSION == 'main'
+        with:
+          repository: Moonwalker1307/PdfPecker
+          path: PdfPecker
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Check the inputs
+        run: |
+          [[ "$RUNS" =~ ^[1-9][0-9]?$ ]] || { echo "::error::runs must be 1 to 99"; exit 1; }
+          [[ "$PDFPECKER_BENCH_WARMUP" =~ ^[0-9]{1,3}$ ]] || { echo "::error::warmup must be 0 to 999 seconds"; exit 1; }
+          [[ "$ENGINES" =~ ^[a-z,]*$ ]] || { echo "::error::engines must be names separated by commas"; exit 1; }
+
+      # A self-hosted runner set up as the README says has these already, and the step leaves it alone.
+      - name: Install wkhtmltopdf and fonts
+        run: |
+          if ! command -v wkhtmltopdf > /dev/null || [ ! -d /usr/share/fonts/truetype/liberation ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq wkhtmltopdf fonts-liberation
+          fi
+
+      - name: Build
+        run: |
+          if [ "$VERSION" = main ]; then source=-p:PdfPeckerSource=PdfPecker; else source=-p:PdfPeckerVersion=$VERSION; fi
+          dotnet build -c Release src/PdfPecker.Comparison $source
+          if [ "$FLUENT" = true ]; then dotnet build -c Release src/PdfPecker.Fluent.Comparison $source; fi
+
+      # The Chromium that matches the Playwright package, used by PuppeteerSharp and Playwright alike. Its system
+      # libraries are installed on GitHub's machines only; a self-hosted runner has them from its setup.
+      - name: Install Chromium
+        run: |
+          deps=; [ "${{ runner.environment }}" != github-hosted ] || deps=--with-deps
+          pwsh src/PdfPecker.Comparison/bin/Release/net10.0/playwright.ps1 install $deps chromium
+          chrome=$(find "${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}" -path '*/chromium-*' -name chrome -type f | head -n 1)
+          [ -n "$chrome" ] || { echo "::error::Chromium not found"; exit 1; }
+          echo "CHROMIUM_PATH=$chrome" >> "$GITHUB_ENV"
+
+      - name: Describe the machine
+        run: |
+          mkdir -p results
+          {
+            echo "## Machine"
+            echo
+            echo "Runner \`${{ runner.name }}\` (${{ inputs.runner || vars.BENCHMARK_RUNNER || 'ubuntu-latest' }}), image ${ImageOS:-self-hosted} ${ImageVersion:-}, $(date -u '+%Y-%m-%d %H:%M UTC')."
+            echo
+            echo '```'
+            lscpu | grep -E '^(Architecture|CPU\(s\)|Model name|Thread|Core|Socket|CPU max MHz|L2|L3|Hypervisor vendor|Virtualization type)'
+            free -h | head -n 2
+            echo "Kernel $(uname -r)"
+            echo "$(dotnet --version) SDK, $(dotnet --list-runtimes | grep NETCore.App | tail -n 1)"
+            echo "$(wkhtmltopdf --version)"
+            echo "Chromium $("$CHROMIUM_PATH" --version 2>/dev/null || echo unknown)"
+            echo '```'
+          } | tee results/machine.md
+
+      - name: Converter comparison
+        run: |
+          args=(--runs "$RUNS" --json results/comparison.json)
+          [ -z "$ENGINES" ] || args+=(--engines "$ENGINES")
+          dotnet src/PdfPecker.Comparison/bin/Release/net10.0/PdfPecker.Comparison.dll "${args[@]}" | tee results/comparison.md
+          cp -r src/PdfPecker.Comparison/bin/Release/net10.0/out results/pdf
+
+      - name: Fluent comparison
+        if: env.FLUENT == 'true'
+        run: |
+          mkdir -p results/fluent-pdf
+          dotnet src/PdfPecker.Fluent.Comparison/bin/Release/net10.0/PdfPecker.Fluent.Comparison.dll 200 "$PDFPECKER_BENCH_WARMUP" results/fluent-pdf \
+            | tee results/fluent.txt
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "# PdfPecker $VERSION"
+            echo
+            [ ! -f results/comparison.md ] || { echo "## Converters"; echo; cat results/comparison.md; echo; }
+            [ ! -f results/fluent.txt ] || { echo "## PdfPecker.Fluent and QuestPDF"; echo; echo '```'; cat results/fluent.txt; echo '```'; echo; }
+            [ ! -f results/machine.md ] || cat results/machine.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benchmark-pdfpecker-${{ env.VERSION }}
+          path: results
+          retention-days: 90
