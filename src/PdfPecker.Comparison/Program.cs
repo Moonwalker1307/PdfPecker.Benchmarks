@@ -3,46 +3,105 @@ using System.Globalization;
 using System.Text.Json;
 
 // Compares PdfPecker with other .NET HTML-to-PDF converters on the same documents and machine.
-// Usage: dotnet run -c Release                  run every engine, each in a fresh process, and print a Markdown table
+// Usage: dotnet run -c Release [-- [--runs N] [--engines a,b] [--json file]]
+//                                               run every engine (or the ones named), each in a fresh process, N times,
+//                                               and print Markdown tables of the medians and their ratios to PdfPecker
 //        dotnet run -c Release -- <engine>      run one engine in this process and print its result as JSON
 // Chromium-based engines use CHROMIUM_PATH (default /opt/pw-browsers/chromium); wkhtmltopdf must be on PATH.
+// PDFPECKER_BENCH_WARMUP sets the warm-up in seconds (default 3).
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 
-if (args.Length > 0 && args[0] != "all")
+if (args.Length > 0 && args[0] != "all" && !args[0].StartsWith("--", StringComparison.Ordinal))
 {
     var result = await Bench.Run(args[0]);
     Console.WriteLine(JsonSerializer.Serialize(result));
     return;
 }
 
+int rounds = 1;
+string? jsonPath = null;
 var engines = new[] { "pdfpecker", "htmlrenderer", "itext", "wkhtmltopdf", "puppeteer", "playwright", "syncfusion" };
-var results = new List<Result>();
-foreach (var engine in engines)
+for (int i = args.Length > 0 && args[0] == "all" ? 1 : 0; i < args.Length; i++)
 {
-    Console.Error.WriteLine($"Running {engine}...");
-    var result = Bench.RunInChild(typeof(Bench).Assembly.Location, engine);
-    if (result == null) { Console.Error.WriteLine($"  {engine} failed"); continue; }
-    results.Add(result);
+    if (args[i] == "--runs" && i + 1 < args.Length) rounds = Math.Max(1, int.Parse(args[++i], CultureInfo.InvariantCulture));
+    else if (args[i] == "--engines" && i + 1 < args.Length) engines = args[++i].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    else if (args[i] == "--json" && i + 1 < args.Length) jsonPath = args[++i];
+    else throw new ArgumentException($"Unknown argument '{args[i]}'");
 }
+
+// Rounds go through every engine in turn, so a slow spell on a shared machine spreads over all engines instead of
+// landing on one of them.
+var runs = engines.ToDictionary(e => e, _ => new List<Result>());
+for (int round = 1; round <= rounds; round++)
+    foreach (var engine in engines)
+    {
+        Console.Error.WriteLine(rounds > 1 ? $"Running {engine} (round {round} of {rounds})..." : $"Running {engine}...");
+        var result = Bench.RunInChild(typeof(Bench).Assembly.Location, engine);
+        if (result == null) { Console.Error.WriteLine($"  {engine} failed"); continue; }
+        runs[engine].Add(result);
+    }
+
+var results = engines.Where(e => runs[e].Count > 0).Select(e => Result.Median(runs[e])).ToList();
+if (jsonPath != null)
+    File.WriteAllText(jsonPath, JsonSerializer.Serialize(new { Machine = Bench.MachineLine(), WarmupSeconds = Bench.WarmupSeconds, Rounds = rounds, Medians = results, Runs = runs }));
 
 Console.WriteLine(Bench.MachineLine());
 Console.WriteLine();
+if (rounds > 1) Console.WriteLine($"Medians of {rounds} runs per engine, each in a fresh process.\n");
 Console.WriteLine("| Engine | First PDF (cold) | Invoice, 1 page | Feature tour, 5 pages | Report, 30 pages | Parallel docs/s | Peak memory |");
 Console.WriteLine("| --- | --- | --- | --- | --- | --- | --- |");
 foreach (var r in results)
-    Console.WriteLine($"| {r.Engine} | {Ms(r.ColdMs)} | {Ms(r.Medians[0])} | {Ms(r.Medians[1])} | {Ms(r.Medians[2])} | {r.ParallelDocsPerSecond:F0} | {r.PeakMemoryMb:F0} MB |");
+    Console.WriteLine($"| {Name(r)} | {Ms(r.ColdMs)} | {Ms(r.Medians[0])} | {Ms(r.Medians[1])} | {Ms(r.Medians[2])} | {r.ParallelDocsPerSecond:F0} | {r.PeakMemoryMb:F0} MB |");
+
+// Ratios to PdfPecker carry over between machines far better than the times themselves: how many times slower than
+// PdfPecker each engine is (or how many times its memory, and PdfPecker's throughput divided by the engine's).
+if (results.FirstOrDefault(r => r.Engine == "pdfpecker") is { } baseline)
+{
+    Console.WriteLine();
+    Console.WriteLine("Compared with PdfPecker (how many times the time, the memory, or PdfPecker's throughput):");
+    Console.WriteLine();
+    Console.WriteLine("| Engine | First PDF (cold) | Invoice, 1 page | Feature tour, 5 pages | Report, 30 pages | Parallel docs/s | Peak memory |");
+    Console.WriteLine("| --- | --- | --- | --- | --- | --- | --- |");
+    foreach (var r in results.Where(r => r != baseline))
+        Console.WriteLine($"| {Name(r)} | {X(r.ColdMs / baseline.ColdMs)} | {X(r.Medians[0] / baseline.Medians[0])} | {X(r.Medians[1] / baseline.Medians[1])} | " +
+            $"{X(r.Medians[2] / baseline.Medians[2])} | {X(baseline.ParallelDocsPerSecond / r.ParallelDocsPerSecond)} | {X(r.PeakMemoryMb / baseline.PeakMemoryMb)} |");
+}
+
 Console.WriteLine();
 Console.WriteLine("Pages and size per document:");
 foreach (var r in results)
     Console.WriteLine($"  {r.Engine,-13} {string.Join("  ", r.Pages.Zip(r.SizesKb, (p, s) => $"{p,3} p {s,6:F0} KB"))}");
 
+string Name(Result r) => runs[r.Engine].Count < rounds ? $"{r.Engine} ({runs[r.Engine].Count} of {rounds} runs)" : r.Engine;
+
 static string Ms(double ms) => ms >= 100 ? $"{ms:F0} ms" : ms >= 10 ? $"{ms:F1} ms" : $"{ms:F2} ms";
 
-record Result(string Engine, double ColdMs, double[] Medians, int[] Pages, double[] SizesKb, double ParallelDocsPerSecond, double PeakMemoryMb);
+static string X(double ratio) => Math.Round(ratio, 1) >= 10 ? $"{ratio:F0}×" : $"{ratio:F1}×";
+
+record Result(string Engine, double ColdMs, double[] Medians, int[] Pages, double[] SizesKb, double ParallelDocsPerSecond, double PeakMemoryMb)
+{
+    /// <summary>The median of each number over several runs of one engine; pages and sizes come from the first run.</summary>
+    public static Result Median(List<Result> runs) => new(runs[0].Engine, Mid(runs.Select(r => r.ColdMs)),
+        Enumerable.Range(0, runs[0].Medians.Length).Select(d => Mid(runs.Select(r => r.Medians[d]))).ToArray(),
+        runs[0].Pages, runs[0].SizesKb, Mid(runs.Select(r => r.ParallelDocsPerSecond)), Mid(runs.Select(r => r.PeakMemoryMb)));
+
+    static double Mid(IEnumerable<double> values)
+    {
+        var v = values.Order().ToArray();
+        return v.Length % 2 == 1 ? v[v.Length / 2] : (v[v.Length / 2 - 1] + v[v.Length / 2]) / 2;
+    }
+}
 
 static class Bench
 {
     static readonly string HtmlDir = Path.Combine(AppContext.BaseDirectory, "html");
+
+    /// <summary>
+    /// Seconds of warm-up before anything is timed, from PDFPECKER_BENCH_WARMUP (default 3). Tiered JIT needs more
+    /// than 3 seconds to settle, so runs meant for publishing use a longer one. Child processes inherit it.
+    /// </summary>
+    public static double WarmupSeconds =>
+        double.TryParse(Environment.GetEnvironmentVariable("PDFPECKER_BENCH_WARMUP"), NumberStyles.Float, CultureInfo.InvariantCulture, out var s) && s >= 0 ? s : 3;
 
     public static async Task<Result> Run(string name)
     {
@@ -61,9 +120,9 @@ static class Bench
         var medians = new double[docs.Length];
         var pages = new int[docs.Length];
         var sizes = new double[docs.Length];
-        // Warm up on every document for 3 seconds (JIT tiering, caches, browser processes) before anything is timed.
+        // Warm up on every document (JIT tiering, caches, browser processes) before anything is timed.
         var warm = Stopwatch.StartNew();
-        while (warm.Elapsed.TotalSeconds < 3) foreach (var doc in docs) await engine.Convert(doc);
+        while (warm.Elapsed.TotalSeconds < WarmupSeconds) foreach (var doc in docs) await engine.Convert(doc);
 
         for (int d = 0; d < docs.Length; d++)
         {
@@ -135,7 +194,7 @@ static class Bench
     /// <summary>Describes the machine, which the timings depend on, for the line above every table.</summary>
     public static string MachineLine() =>
         $"PdfPecker {PdfPeckerVersion()}, {Environment.ProcessorCount} cores, {CpuName()}, {L3Cache()} L3, .NET {Environment.Version}, " +
-        $"GC gen0 budget {Environment.GetEnvironmentVariable("DOTNET_GCgen0size") ?? GcBudget}";
+        $"GC gen0 budget {Environment.GetEnvironmentVariable("DOTNET_GCgen0size") ?? GcBudget}, {WarmupSeconds:0.#} s warm-up";
 
     // The informational version names the NuGet version, or the -dev version and commit of a source build.
     static string PdfPeckerVersion() =>
