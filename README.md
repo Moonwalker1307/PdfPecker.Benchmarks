@@ -18,6 +18,11 @@ in the library repository, with `bench/compare-versions.sh`.
   times both in one process after a long warm-up. Its `Examples.cs` and `assets` are copies of
   `samples/PdfPecker.Fluent.Sample` in the PdfPecker repository, and `src/PdfPecker.Comparison/html` holds the invoice
   and report of `samples/PdfPecker.Sample`.
+- `src/PdfPecker.TextExtraction.Comparison` compares PdfPecker's text extraction (`PdfText`) with
+  [PdfPig](https://github.com/UglyToad/PdfPig)'s: which words come out and in what order, on pages whose text is known,
+  and the time and memory each takes. Its `corpus` holds the test pages (multi-column, tables, rotated text and pages,
+  Chinese, vertical Japanese, Arabic, Hebrew, ligatures, and pages drawn in another order than they are read), which
+  Chromium and PdfPecker turn into PDFs; `overlay.py` draws each engine's reading order over a page. See below.
 
 ## Running
 
@@ -37,6 +42,25 @@ writes every run to a file, and `PDFPECKER_BENCH_WARMUP=30` sets the warm-up to 
 still at work after 3 seconds, so numbers meant for publishing use a longer one). With `--runs`, each converter runs
 that many times in a fresh process, one round of every converter after another, and the table shows the medians; a
 second table divides each converter's numbers by PdfPecker's.
+
+## Text extraction
+
+```
+src/PdfPecker.TextExtraction.Comparison/corpus/fonts.sh                     # the corpus fonts, from npm
+python3 src/PdfPecker.TextExtraction.Comparison/corpus/make_positioned.py   # c13 and c14 (already checked in)
+node src/PdfPecker.TextExtraction.Comparison/corpus/chrome.js out/text      # Chromium PDFs and expected texts
+dotnet run -c Release --project src/PdfPecker.TextExtraction.Comparison -- corpus src/PdfPecker.TextExtraction.Comparison/corpus out/text
+dotnet run -c Release --project src/PdfPecker.TextExtraction.Comparison -- accuracy out/text     # scores as a table
+dotnet run -c Release --project src/PdfPecker.TextExtraction.Comparison -- extract out/real any.pdf ...
+dotnet run -c Release --project src/PdfPecker.TextExtraction.Comparison -- speed out/text/*.pdf
+python3 src/PdfPecker.TextExtraction.Comparison/overlay.py out/text/c01-two-columns.chrome.pdf out/text/extracted 1 c01.png
+```
+
+`chrome.js` needs Node with Playwright and its Chromium; the expected text of a page is its `innerText`, or
+`<case>.expected.txt` where the page is drawn in another order than it is read. PdfPig runs the three ways its README
+describes: `page.Text`, `ContentOrderTextExtractor` and the layout analysis (nearest-neighbour words, Docstrum blocks,
+the unsupervised reading order detector). PdfPecker's reading order is on `main` after 1.23.0, so measure it with
+`-p:PdfPeckerSource=../PdfPecker` until 1.24.0 is out.
 
 ## Which PdfPecker
 
