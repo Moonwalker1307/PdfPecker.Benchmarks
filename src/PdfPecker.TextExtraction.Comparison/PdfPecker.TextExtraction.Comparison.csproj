@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Compares PdfPecker's text extraction with PdfPig's: accuracy and reading order on pages whose text is known, and
+       speed and allocations. Usage is at the top of Program.cs. -->
+  <ItemGroup>
+    <PackageReference Include="PdfPig" Version="0.1.16" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PdfPeckerRoot)' == ''">
+    <PackageReference Include="PdfPecker" Version="$(PdfPeckerVersion)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(PdfPeckerRoot)' != ''">
+    <ProjectReference Include="$(PdfPeckerRoot)/src/PdfPecker/PdfPecker.csproj" />
+  </ItemGroup>
+
+</Project>

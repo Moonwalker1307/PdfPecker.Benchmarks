@@ -1,0 +1,9 @@
+Delivery note No. DN-58213
+Ship to: Example Customer Ltd. Order: PO-7781
+Street: 8 Harbour Road Date: 4 November 2026
+City: Leith EH6 6QF Carrier: Northern Freight
+Article Description Quantity Weight
+A-100 Office chair 4 52 kg
+A-215 Standing desk 2 96 kg
+B-007 Monitor arm 6 18 kg
+Received by: ________________ Signature: ________________
