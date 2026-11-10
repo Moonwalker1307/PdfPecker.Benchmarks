@@ -59,8 +59,8 @@ python3 src/PdfPecker.TextExtraction.Comparison/overlay.py out/text/c01-two-colu
 `chrome.js` needs Node with Playwright and its Chromium; the expected text of a page is its `innerText`, or
 `<case>.expected.txt` where the page is drawn in another order than it is read. PdfPig runs the three ways its README
 describes: `page.Text`, `ContentOrderTextExtractor` and the layout analysis (nearest-neighbour words, Docstrum blocks,
-the unsupervised reading order detector). PdfPecker's reading order is on `main` after 1.23.0, so measure it with
-`-p:PdfPeckerSource=../PdfPecker` until 1.24.0 is out.
+the unsupervised reading order detector). PdfPecker reads in reading order from 1.24.0, and `pdfpecker-ttb` is its
+top-to-bottom order of 1.23.0 and earlier.
 
 ## Which PdfPecker
 
