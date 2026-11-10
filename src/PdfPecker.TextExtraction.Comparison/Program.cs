@@ -1,6 +1,6 @@
 // Compares PdfPecker's text extraction (PdfText) with PdfPig's.
 //
-//   dotnet run -c Release --project src/PdfPecker.TextExtraction.Comparison -p:PdfPeckerSource=../PdfPecker -- <command>
+//   dotnet run -c Release --project src/PdfPecker.TextExtraction.Comparison -- <command>
 //
 //   corpus <corpus folder> <folder>    converts the corpus pages with PdfPecker into <folder>, next to the Chromium PDFs
 //                                      and expected texts that corpus/chrome.js writes there, and rotates c01 into c07
