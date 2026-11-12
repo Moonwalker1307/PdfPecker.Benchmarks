@@ -22,7 +22,10 @@ jobs:
           path: PdfPecker
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 10.0.x
+          # PdfPecker's main also targets net11.0, which only the .NET 11 SDK builds.
+          dotnet-version: |
+            10.0.x
+            11.0.x
       - name: Converter comparison, PdfPecker from nuget.org
         run: dotnet build -c Release src/PdfPecker.Comparison
       - name: Converter comparison, PdfPecker from main
